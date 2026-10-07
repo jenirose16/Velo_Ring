@@ -1,0 +1,25 @@
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+
+# Maven
+target/
+!/.mvn/wrapper/maven-wrapper.jar
+log/
+*.log
+
+# Node
+node_modules/
+dist/
+build/
+.env.local
+.env.*.local
