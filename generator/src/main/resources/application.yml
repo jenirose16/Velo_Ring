@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: veloring-generator
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      retries: 3
+      acks: all
+      properties:
+        spring.json.add.type.headers: false
+
+veloring:
+  generator:
+    seed: 42
+    tps: 50
+    duration-seconds: 10
+    start-time: "2026-01-01T00:00:00Z"
+    acceleration-factor: 10000.0
+    accounts-pool-size: 1000
+    ground-truth-file: "ground-truth.jsonl"
+    scenarios:
+      background:
+        weight: 0
+      cycle3:
+        weight: 100
+      fanout:
+        weight: 0
