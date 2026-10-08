@@ -1,4 +1,4 @@
-C:\Users\jr677\OneDrive\Desktop\Velo_Ringpackage com.veloring.engine;
+package com.veloring.engine;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
