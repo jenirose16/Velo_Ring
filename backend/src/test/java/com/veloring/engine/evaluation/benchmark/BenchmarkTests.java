@@ -337,7 +337,7 @@ public class BenchmarkTests {
     @Test
     public void testCsvMetadataSerialization() throws Exception {
         BenchmarkMetrics metrics = new BenchmarkMetrics(
-            "testExp", 123L, 456L, "fingerprint123", 100, 1, 1, 60L, 60L,
+            "testExp", 123L, 456L, "base_fp_123", "eval_fp_123", 100, 100, 1, 1, 60L, 60L,
             10L, 5, 120000L, true,
             10, 100,
             1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L,
@@ -355,5 +355,74 @@ public class BenchmarkTests {
         assertTrue(lines.get(1).contains("10,5,120000,true"));
 
         Files.deleteIfExists(tempFile);
+    }
+
+    @Test
+    public void testAccuracyAggregationConsistency() {
+        DetectionBenchmark db = new DetectionBenchmark();
+        // 1 warmup, 3 measured
+        BenchmarkMetrics res = db.runExperiment("TestAgg", 123, 100, 2, 60, 60, 0, 0, false, 1, 3);
+
+        assertEquals(3, res.accuracyFixtureCount());
+
+        // In aggregate, the number of valid evaluated targets should equal TP + FN.
+        assertEquals(res.validEvaluatedCycleTargets(), res.truePositives() + res.falseNegatives(),
+            "Micro-averaged targets must equal TP + FN");
+
+        int totalFp = res.ordinaryFalsePositives() + res.ineligibleTargetDetections();
+        if (res.truePositives() + totalFp > 0) {
+            double expectedPrec = (double) res.truePositives() / (res.truePositives() + totalFp);
+            assertEquals(expectedPrec, res.precision(), 0.001);
+        }
+    }
+
+    @Test
+    public void testEvaluationFingerprintSensitivity() {
+        BenchmarkFixtureGenerator.Config config = new BenchmarkFixtureGenerator.Config();
+        config.seed = 123;
+        config.totalTransactions = 100;
+        config.cycleCount = 2;
+        config.windowSizeSec = 60;
+
+        BenchmarkWorkload w1 = BenchmarkFixtureGenerator.generate(config);
+
+        String eval1 = w1.evaluationFingerprint(60, 60);
+        String eval2 = w1.evaluationFingerprint(30, 60); // different window size
+
+        assertNotEquals(eval1, eval2, "Window size change must change evaluation fingerprint");
+
+        String eval3 = w1.evaluationFingerprint(60, 10); // different lateness
+        assertNotEquals(eval1, eval3, "Allowed lateness change must change evaluation fingerprint");
+    }
+
+    @Test
+    public void testEvaluationFingerprintPolicySensitivity() {
+        BenchmarkFixtureGenerator.Config config = new BenchmarkFixtureGenerator.Config();
+        config.seed = 123;
+        config.totalTransactions = 100;
+        config.cycleCount = 1;
+        config.windowSizeSec = 60;
+
+        BenchmarkWorkload base = BenchmarkFixtureGenerator.generate(config);
+        String evalBase = base.evaluationFingerprint(60, 60);
+
+        // Identical workload state and configuration produce identical evaluation fingerprints
+        BenchmarkWorkload identical = BenchmarkFixtureGenerator.generate(config);
+        assertEquals(evalBase, identical.evaluationFingerprint(60, 60), "Identical workloads must have identical evaluation fingerprints");
+
+        // Change only the eligibleUnderPolicy flag
+        GroundTruthEvaluator.GroundTruthRecord gt = base.groundTruth().get(0);
+        GroundTruthEvaluator.GroundTruthRecord gtMod = new GroundTruthEvaluator.GroundTruthRecord(
+            gt.experimentId(), gt.scenarioId(), gt.scenarioType(), gt.transactionId(), gt.role(), gt.injectedPattern(), !gt.eligibleUnderPolicy()
+        );
+
+        List<GroundTruthEvaluator.GroundTruthRecord> modGt = new ArrayList<>(base.groundTruth());
+        modGt.set(0, gtMod);
+        BenchmarkWorkload mutated = new BenchmarkWorkload(base.events(), modGt);
+
+        assertNotEquals(evalBase, mutated.evaluationFingerprint(60, 60), "Mutation of eligibleUnderPolicy must change evaluation fingerprint");
+
+        // Base fingerprint should remain identical, proving we isolated the change to the evaluation phase
+        assertEquals(base.baseWorkloadFingerprint(), mutated.baseWorkloadFingerprint(), "Mutation of eligibleUnderPolicy should not alter base fingerprint");
     }
 }

@@ -67,4 +67,35 @@ public record BenchmarkWorkload(
             throw new RuntimeException("SHA-256 not supported", e);
         }
     }
+
+    public String evaluationFingerprint(long windowSizeSec, long allowedLatenessSec) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+
+            // Hash the base fingerprint
+            digest.update(baseWorkloadFingerprint().getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(String.valueOf(windowSizeSec).getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(String.valueOf(allowedLatenessSec).getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+
+            // Serialize window-specific ground truth eligibility
+            for (GroundTruthEvaluator.GroundTruthRecord gt : groundTruth) {
+                digest.update(gt.transactionId().getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+                digest.update((byte) (gt.eligibleUnderPolicy() ? 1 : 0));
+                digest.update((byte) 0);
+            }
+
+            byte[] hashBytes = digest.digest();
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hashBytes) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not supported", e);
+        }
+    }
 }

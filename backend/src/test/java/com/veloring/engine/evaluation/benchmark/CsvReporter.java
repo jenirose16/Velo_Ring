@@ -11,7 +11,7 @@ public class CsvReporter {
         Files.createDirectories(outputPath.getParent());
         try (BufferedWriter writer = Files.newBufferedWriter(outputPath)) {
             // Write header
-            writer.write("experimentId,seed,evaluatedSeed,workloadFingerprint,workloadSize,requestedCycles,generatedCycles,windowSizeSec,allowedLatenessSec," +
+            writer.write("experimentId,seed,evaluatedSeed,baseWorkloadFingerprint,evaluationFingerprint,accuracyFixtureCount,workloadSize,requestedCycles,generatedCycles,windowSizeSec,allowedLatenessSec," +
                     "eventSpacingMs,outOfOrderCount,maxLatenessMs,finalWindowOnly," +
                     "warmupIterations,measuredIterations,engineInsertionMedianNanos,engineInsertionP95Nanos," +
                     "engineInsertionP99Nanos,snapshotMedianNanos,snapshotP95Nanos,snapshotP99Nanos," +
@@ -22,8 +22,8 @@ public class CsvReporter {
                     "ineligibleTargetsCount,retainedTransactionCount,finalWatermarkMs,percentileMethod\n");
 
             for (BenchmarkMetrics m : metricsList) {
-                writer.write(String.format("%s,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%b,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n",
-                    escape(m.experimentId()), m.seed(), m.evaluatedSeed(), escape(m.workloadFingerprint()), m.workloadSize(), m.requestedCycles(), m.generatedCycles(),
+                writer.write(String.format("%s,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%b,%d,%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%d,%d,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n",
+                    escape(m.experimentId()), m.seed(), m.evaluatedSeed(), escape(m.baseWorkloadFingerprint()), escape(m.evaluationFingerprint()), m.accuracyFixtureCount(), m.workloadSize(), m.requestedCycles(), m.generatedCycles(),
                     m.windowSizeSec(), m.allowedLatenessSec(), m.eventSpacingMs(), m.outOfOrderCount(), m.maxLatenessMs(), m.finalWindowOnly(),
                     m.warmupIterations(), m.measuredIterations(),
                     formatLong(m.engineInsertionMedianNanos()), formatLong(m.engineInsertionP95Nanos()), formatLong(m.engineInsertionP99Nanos()),
