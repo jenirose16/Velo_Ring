@@ -29,7 +29,7 @@ public class TransactionConsumer {
     private final TemporalWindowEngine temporalWindowEngine;
     private final MeterRegistry meterRegistry;
 
-    @KafkaListener(topics = "payment-events", groupId = "veloring-consumer-group", containerFactory = "kafkaListenerContainerFactory")
+    @KafkaListener(topics = "${veloring.kafka.topic:payment-events}", groupId = "${veloring.kafka.group-id:veloring-consumer-group}", containerFactory = "kafkaListenerContainerFactory")
     public void consume(TransactionEvent event, Acknowledgment acknowledgment) {
         long startTotal = System.nanoTime();
         try {

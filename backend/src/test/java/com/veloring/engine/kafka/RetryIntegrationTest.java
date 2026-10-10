@@ -21,15 +21,7 @@ import static org.mockito.Mockito.*;
 import static org.awaitility.Awaitility.await;
 import java.time.Duration;
 
-@SpringBootTest
-@EmbeddedKafka(partitions = 1, brokerProperties = { "listeners=PLAINTEXT://localhost:9093", "port=9093" })
-@TestPropertySource(properties = {
-    "spring.kafka.bootstrap-servers=${spring.embedded.kafka.brokers}",
-    "spring.kafka.producer.value-serializer=org.springframework.kafka.support.serializer.JsonSerializer",
-    "spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer",
-    "veloring.neo4j.uri=bolt://localhost:7687" // Mocked, so uri doesn't matter much
-})
-public class RetryIntegrationTest {
+public class RetryIntegrationTest extends AbstractIntegrationTest {
 
     @MockBean
     private Driver neo4jDriver;
@@ -63,7 +55,7 @@ public class RetryIntegrationTest {
         System.out.println("RETRY TEST STARTING:");
         System.out.println("Sending event intended to fail transiently twice...");
         
-        kafkaTemplate.send("payment-events", event);
+        kafkaTemplate.send(topic, event);
 
         // Wait for retries (backoff is 1s, so 3 attempts take ~2-3 seconds)
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {

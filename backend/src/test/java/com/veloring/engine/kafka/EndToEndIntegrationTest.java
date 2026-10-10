@@ -31,31 +31,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@SpringBootTest(properties = {
-    "management.server.port=0",
-    "spring.kafka.consumer.auto-offset-reset=earliest",
-    "veloring.detection.fixed-delay-ms=500",
-    "spring.kafka.producer.value-serializer=org.springframework.kafka.support.serializer.JsonSerializer"
-})
-@Testcontainers
-public class EndToEndIntegrationTest {
-
-    @Container
-    static final KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.0"));
-
-    @Container
-    static final Neo4jContainer<?> neo4j = new Neo4jContainer<>(DockerImageName.parse("neo4j:5.9.0"))
-            .withoutAuthentication();
-
-    @DynamicPropertySource
-    static void dynamicProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
-        registry.add("veloring.neo4j.uri", neo4j::getBoltUrl);
-        registry.add("veloring.neo4j.username", () -> "");
-        registry.add("veloring.neo4j.password", () -> "");
-        registry.add("management.health.neo4j.enabled", () -> "false");
-        registry.add("management.health.kafka.enabled", () -> "false");
-    }
+public class EndToEndIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private KafkaTemplate<String, Object> kafkaTemplate;
@@ -111,7 +87,6 @@ public class EndToEndIntegrationTest {
                 .build();
 
         // 1. Produce events to Kafka
-        String topic = "payment-events";
         kafkaTemplate.send(topic, e1.getTransactionId(), e1).get();
         kafkaTemplate.send(topic, e2.getTransactionId(), e2).get();
         kafkaTemplate.send(topic, e3.getTransactionId(), e3).get();

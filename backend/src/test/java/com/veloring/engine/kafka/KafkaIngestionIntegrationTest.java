@@ -24,16 +24,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 import java.time.Duration;
 
-@SpringBootTest
-@TestPropertySource(properties = {
-    "spring.kafka.bootstrap-servers=localhost:9092",
-    "spring.kafka.producer.value-serializer=org.springframework.kafka.support.serializer.JsonSerializer",
-    "spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer",
-    "veloring.neo4j.uri=bolt://localhost:7687",
-    "veloring.neo4j.username=neo4j",
-    "veloring.neo4j.password=verysecurepassword"
-})
-public class KafkaIngestionIntegrationTest {
+public class KafkaIngestionIntegrationTest extends AbstractIntegrationTest {
 
     @Autowired
     private Driver neo4jDriver;
@@ -54,7 +45,7 @@ public class KafkaIngestionIntegrationTest {
                 .channel("mobile")
                 .build();
 
-        kafkaTemplate.send("payment-events", event);
+        kafkaTemplate.send(topic, event);
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             try (Session session = neo4jDriver.session()) {
@@ -79,12 +70,12 @@ public class KafkaIngestionIntegrationTest {
     @Test
     void testPoisonPillDoesNotBlock() throws InterruptedException {
         Map<String, Object> props = new HashMap<>();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, AbstractIntegrationTest.kafka.getBootstrapServers());
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer");
         
         try (KafkaProducer<String, String> producer = new KafkaProducer<>(props)) {
-            producer.send(new ProducerRecord<>("payment-events", "bad-key", "{ bad json: "));
+            producer.send(new ProducerRecord<>(topic, "bad-key", "{ bad json: "));
         }
         
         String txId = "tx-after-poison-" + UUID.randomUUID().toString();
@@ -98,7 +89,7 @@ public class KafkaIngestionIntegrationTest {
                 .channel("mobile")
                 .build();
                 
-        kafkaTemplate.send("payment-events", event);
+        kafkaTemplate.send(topic, event);
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             try (Session session = neo4jDriver.session()) {
@@ -128,7 +119,7 @@ public class KafkaIngestionIntegrationTest {
                 .channel("mobile")
                 .build();
                 
-        kafkaTemplate.send("payment-events", event);
+        kafkaTemplate.send(topic, event);
 
         String sentinelId = "tx-sentinel-" + UUID.randomUUID().toString();
         TransactionEvent sentinelEvent = TransactionEvent.builder()
@@ -141,7 +132,7 @@ public class KafkaIngestionIntegrationTest {
                 .channel("mobile")
                 .build();
         
-        kafkaTemplate.send("payment-events", sentinelEvent);
+        kafkaTemplate.send(topic, sentinelEvent);
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             try (Session session = neo4jDriver.session()) {
@@ -174,7 +165,7 @@ public class KafkaIngestionIntegrationTest {
                 .channel("mobile")
                 .build();
                 
-        kafkaTemplate.send("payment-events", event);
+        kafkaTemplate.send(topic, event);
 
         String sentinelId = "tx-sentinel-" + UUID.randomUUID().toString();
         TransactionEvent sentinelEvent = TransactionEvent.builder()
@@ -187,7 +178,7 @@ public class KafkaIngestionIntegrationTest {
                 .channel("mobile")
                 .build();
                 
-        kafkaTemplate.send("payment-events", sentinelEvent);
+        kafkaTemplate.send(topic, sentinelEvent);
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             try (Session session = neo4jDriver.session()) {
@@ -223,10 +214,10 @@ public class KafkaIngestionIntegrationTest {
         System.out.println("==================================================");
         System.out.println("IDEMPOTENCY TEST STARTING:");
         System.out.println("Sending delivery 1: " + txId);
-        kafkaTemplate.send("payment-events", event);
+        kafkaTemplate.send(topic, event);
         
         System.out.println("Sending delivery 2: " + txId);
-        kafkaTemplate.send("payment-events", event); 
+        kafkaTemplate.send(topic, event);
 
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             try (Session session = neo4jDriver.session()) {
