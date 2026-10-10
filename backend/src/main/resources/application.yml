@@ -15,6 +15,19 @@ spring:
         spring.json.value.default.type: "com.veloring.engine.event.TransactionEvent"
     listener:
       ack-mode: manual
+  task:
+    scheduling:
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s
+
+management:
+  server:
+    port: 8081
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
 
 veloring:
   neo4j:

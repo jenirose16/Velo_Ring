@@ -1,6 +1,8 @@
 package com.veloring.engine.kafka;
 
 import com.veloring.engine.event.TransactionEvent;
+import com.veloring.engine.temporal.TemporalWindowEngine;
+import com.veloring.engine.temporal.TemporalAddResult;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
@@ -10,8 +12,10 @@ import org.neo4j.driver.Session;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -22,11 +26,15 @@ public class TransactionConsumer {
 
     private final Driver neo4jDriver;
     private final Validator validator;
+    private final TemporalWindowEngine temporalWindowEngine;
+    private final MeterRegistry meterRegistry;
 
     @KafkaListener(topics = "payment-events", groupId = "veloring-consumer-group", containerFactory = "kafkaListenerContainerFactory")
     public void consume(TransactionEvent event, Acknowledgment acknowledgment) {
-        event.setProcessedAt(Instant.now());
-        log.info("Received transaction event: {}", event.getTransactionId());
+        long startTotal = System.nanoTime();
+        try {
+            event.setProcessedAt(Instant.now());
+            log.info("Received transaction event: {}", event.getTransactionId());
 
         // 1. Validation (Schema/Data validation)
         Set<ConstraintViolation<TransactionEvent>> violations = validator.validate(event);
@@ -62,9 +70,11 @@ public class TransactionConsumer {
                     t.channel = $channel
             """;
             
-            session.executeWrite(tx -> {
-                tx.run(query, 
-                    org.neo4j.driver.Values.parameters(
+            long startNeo4j = System.nanoTime();
+            try {
+                session.executeWrite(tx -> {
+                    tx.run(query, 
+                        org.neo4j.driver.Values.parameters(
                         "senderId", event.getSenderAccountId(),
                         "receiverId", event.getReceiverAccountId(),
                         "transactionId", event.getTransactionId(),
@@ -76,12 +86,35 @@ public class TransactionConsumer {
                     )
                 );
                 return null;
-            });
+                });
+            } finally {
+                meterRegistry.timer("veloring.ingest.neo4j.duration").record(System.nanoTime() - startNeo4j, TimeUnit.NANOSECONDS);
+            }
             log.info("Persisted transaction {} to graph", event.getTransactionId());
 
-            // 4. Acknowledge message processing on successful write
+            // 4. In-Memory Temporal Engine Insertion
+            long startTemporal = System.nanoTime();
+            TemporalAddResult engineResult;
+            try {
+                engineResult = temporalWindowEngine.add(event);
+            } finally {
+                meterRegistry.timer("veloring.ingest.temporal.duration").record(System.nanoTime() - startTemporal, TimeUnit.NANOSECONDS);
+            }
+            
+            if (engineResult == TemporalAddResult.ACCEPTED) {
+                log.info("Added transaction {} to temporal window", event.getTransactionId());
+            } else if (engineResult == TemporalAddResult.DUPLICATE) {
+                log.warn("Transaction {} ignored by temporal window: Duplicate", event.getTransactionId());
+            } else if (engineResult == TemporalAddResult.TOO_LATE) {
+                log.warn("Transaction {} ignored by temporal window: Too Late (outside allowed lateness)", event.getTransactionId());
+            }
+
+            // 5. Acknowledge message processing on successful write and engine add
             acknowledgment.acknowledge();
         }
         // Exceptions propagate to ErrorHandler (DefaultErrorHandler with BackOff)
+        } finally {
+            meterRegistry.timer("veloring.ingest.total.duration").record(System.nanoTime() - startTotal, TimeUnit.NANOSECONDS);
+        }
     }
 }

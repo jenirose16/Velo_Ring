@@ -6,6 +6,9 @@ import com.veloring.engine.temporal.TemporalSnapshot;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import org.springframework.stereotype.Component;
+
+@Component
 public class ThreeAccountCycleDetector {
 
     public List<Cycle> detect(TemporalSnapshot snapshot) {
