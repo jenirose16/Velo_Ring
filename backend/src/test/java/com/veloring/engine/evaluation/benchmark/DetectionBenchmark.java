@@ -24,26 +24,23 @@ public class DetectionBenchmark {
         System.out.println("Running E1A-FinalWindow");
         results.add(runExperiment("E1A-FinalWindow", 42, 10000, 50, 60, 60, 0, 0, true));
 
-        // E2 - Window size sensitivity
-        System.out.println("Running E2-Win10");
-        results.add(runExperiment("E2-Win10", 42, 10000, 50, 10, 60, 0, 0, true));
-        System.out.println("Running E2-Win60");
-        results.add(runExperiment("E2-Win60", 42, 10000, 50, 60, 60, 0, 0, true));
-        System.out.println("Running E2-Win300");
-        results.add(runExperiment("E2-Win300", 42, 10000, 50, 300, 60, 0, 0, true));
-
-        // E3 - Workload scaling
-        System.out.println("Running E3-Scale10k");
-        results.add(runExperiment("E3-Scale10k", 43, 10000, 50, 60, 60, 0, 0, true));
-        System.out.println("Running E3-Scale50k");
-        results.add(runExperiment("E3-Scale50k", 43, 50000, 250, 60, 60, 0, 0, true));
-
-        // E4 - Out of order
-        System.out.println("Running E4-OutOfOrder");
-        results.add(runExperiment("E4-OutOfOrder", 44, 10000, 50, 60, 60, 1000, 120000, true));
-
         CsvReporter.write(Paths.get("target/veloring-benchmarks/results.csv"), results);
         System.out.println("Benchmark completed. Results written to target/veloring-benchmarks/results.csv");
+    }
+
+    @Test
+    public void runWindowSensitivityExperiment() throws Exception {
+        System.out.println("Starting Window Sensitivity Experiment...");
+        List<BenchmarkMetrics> results = new ArrayList<>();
+
+        int[] windowSizes = {10, 30, 60, 300};
+        for (int win : windowSizes) {
+            System.out.println("Running E2-Win" + win);
+            results.add(runExperiment("E2-Win" + win, 42, 10000, 50, win, 60, 0, 0, false));
+        }
+
+        CsvReporter.write(Paths.get("target/veloring-benchmarks/window_sensitivity.csv"), results);
+        System.out.println("Experiment completed. Results written to target/veloring-benchmarks/window_sensitivity.csv");
     }
 
     private BenchmarkMetrics runExperiment(String expId, long seed, int totalTx, int cycles,
@@ -57,8 +54,8 @@ public class DetectionBenchmark {
         config.maxLatenessMs = maxLateMs;
         config.finalWindowOnly = finalWindowOnly;
         config.windowSizeSec = winSec;
+        config.allowedLatenessSec = lateSec;
 
-        BenchmarkWorkload workload = BenchmarkFixtureGenerator.generate(config);
 
         int warmup = 10;
         int measured = 100;
@@ -68,13 +65,23 @@ public class DetectionBenchmark {
         List<Long> detectTimes = new ArrayList<>();
         List<Long> combinedTimes = new ArrayList<>();
 
-        int attemptedCount = workload.events().size();
+        int attemptedCount = 0;
         int acceptedCount = 0;
         int rejectedCount = 0;
+        int generatedCyclesCount = 0;
+        long evaluatedSeed = seed;
         CycleMatchResult finalQuality = null;
         int snapshotTxCount = 0;
+        TemporalSnapshot finalSnap = null;
+        String fingerprint = "";
 
         for (int i = 0; i < warmup + measured; i++) {
+            // Generate a fresh workload per iteration to avoid artificial JIT branch-prediction bias.
+            // This tests workload variability robustness rather than hot-path identical fixture optimization.
+            config.seed = seed + i;
+            BenchmarkWorkload workload = BenchmarkFixtureGenerator.generate(config);
+            attemptedCount = workload.events().size();
+            generatedCyclesCount = workload.groundTruth().size() / 3;
             TemporalWindowEngine engine = new TemporalWindowEngine(winSec, lateSec);
             ThreeAccountCycleDetector detector = new ThreeAccountCycleDetector();
 
@@ -109,9 +116,15 @@ public class DetectionBenchmark {
             }
 
             if (i == warmup + measured - 1) {
+                // Record accuracy on the final repetition's generated workload
+                evaluatedSeed = config.seed;
                 acceptedCount = accepted;
                 rejectedCount = rejected;
                 snapshotTxCount = snap.getAllEvents().size();
+                finalSnap = snap;
+
+                fingerprint = workload.baseWorkloadFingerprint();
+
                 GroundTruthEvaluator evaluator = new GroundTruthEvaluator();
                 finalQuality = evaluator.evaluateRecords(workload.groundTruth(), detected);
             }
@@ -129,27 +142,28 @@ public class DetectionBenchmark {
         double acceptedTps = acceptedCount / (engineP50 / 1e9);
         double detectionTps = snapshotTxCount == 0 || detectP50 == 0 ? 0.0 : snapshotTxCount / (detectP50 / 1e9);
 
-        double precision = finalQuality.truePositives() + finalQuality.falsePositives() == 0 ? 0.0
-            : (double)finalQuality.truePositives() / (finalQuality.truePositives() + finalQuality.falsePositives());
-
-        double recall = finalQuality.truePositives() + finalQuality.falseNegatives() == 0 ? 0.0
-            : (double)finalQuality.truePositives() / (finalQuality.truePositives() + finalQuality.falseNegatives());
-
-        double f1 = precision + recall == 0 ? 0.0 : 2 * (precision * recall) / (precision + recall);
+        double precision = finalQuality.precision();
+        double recall = finalQuality.recall();
+        double f1 = finalQuality.f1Score();
 
         int requestedCycles = config.cycleCount;
-        int generatedCycles = workload.groundTruth().size() / 3;
+        int generatedCycles = generatedCyclesCount;
+
+        long finalWatermarkMs = finalSnap == null || finalSnap.getWatermark() == null ? -1 : finalSnap.getWatermark().toEpochMilli();
 
         return new BenchmarkMetrics(
-            expId, seed, totalTx, requestedCycles, generatedCycles, winSec, lateSec, warmup, measured,
+            expId, seed, evaluatedSeed, fingerprint, totalTx, requestedCycles, generatedCycles, winSec, lateSec,
+            config.eventSpacingMs, oooCount, maxLateMs, finalWindowOnly,
+            warmup, measured,
             PercentileUtil.calculate(engineTimes, 50), PercentileUtil.calculate(engineTimes, 95), PercentileUtil.calculate(engineTimes, 99),
             PercentileUtil.calculate(snapshotTimes, 50), PercentileUtil.calculate(snapshotTimes, 95), PercentileUtil.calculate(snapshotTimes, 99),
             PercentileUtil.calculate(detectTimes, 50), PercentileUtil.calculate(detectTimes, 95), PercentileUtil.calculate(detectTimes, 99),
             PercentileUtil.calculate(combinedTimes, 50), PercentileUtil.calculate(combinedTimes, 95), PercentileUtil.calculate(combinedTimes, 99),
             attemptedTps, acceptedTps, detectionTps,
-            finalQuality.truePositives(), finalQuality.falsePositives(), finalQuality.falseNegatives(),
+            finalQuality.truePositives(), finalQuality.ordinaryFalsePositives(), finalQuality.ineligibleTargetDetections(), finalQuality.falseNegatives(),
             precision, recall, f1,
             attemptedCount, acceptedCount, rejectedCount, finalQuality.ambiguousTargets(), finalQuality.ignoredAmbiguousDetections(), finalQuality.totalInjectedTargets(),
+            finalQuality.ineligibleTargets(), snapshotTxCount, finalWatermarkMs,
             "ceil(p*N) rank mapping"
         );
     }

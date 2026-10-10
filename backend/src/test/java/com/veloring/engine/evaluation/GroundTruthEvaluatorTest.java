@@ -33,7 +33,7 @@ class GroundTruthEvaluatorTest {
     }
 
     private GroundTruthEvaluator.GroundTruthRecord createRecord(String experimentId, String scenarioId, String txId, String role, boolean injected) {
-        return new GroundTruthEvaluator.GroundTruthRecord(experimentId, scenarioId, "CYCLE_3", txId, role, injected);
+        return new GroundTruthEvaluator.GroundTruthRecord(experimentId, scenarioId, "CYCLE_3", txId, role, injected, true);
     }
 
     @Test
@@ -53,7 +53,7 @@ class GroundTruthEvaluatorTest {
         CycleMatchResult result = evaluator.evaluateRecords(records, List.of(cycle));
 
         assertEquals(1, result.truePositives());
-        assertEquals(0, result.falsePositives());
+        assertEquals(0, result.ordinaryFalsePositives());
         assertEquals(0, result.falseNegatives());
         assertEquals(0, result.ambiguousTargets());
         assertEquals(1, result.totalInjectedTargets());
@@ -79,7 +79,7 @@ class GroundTruthEvaluatorTest {
         CycleMatchResult result = evaluator.evaluateRecords(records, List.of(cycle));
 
         assertEquals(0, result.truePositives());
-        assertEquals(1, result.falsePositives()); // Unmatched structural cycle
+        assertEquals(1, result.ordinaryFalsePositives()); // Unmatched structural cycle
         assertEquals(1, result.falseNegatives()); // Target missed
         assertEquals(0.0, result.precision());
         assertEquals(0.0, result.recall());
@@ -103,7 +103,7 @@ class GroundTruthEvaluatorTest {
         CycleMatchResult result = evaluator.evaluateRecords(records, List.of(cycle1, cycle2));
 
         assertEquals(1, result.truePositives());
-        assertEquals(1, result.falsePositives()); // Second cycle fails to match remaining targets
+        assertEquals(1, result.ordinaryFalsePositives()); // Second cycle fails to match remaining targets
         assertEquals(0, result.falseNegatives());
         assertEquals(0.5, result.precision());
         assertEquals(1.0, result.recall());
@@ -111,7 +111,7 @@ class GroundTruthEvaluatorTest {
 
     @Test
     void testZeroDenominatorMetrics() {
-        CycleMatchResult result = new CycleMatchResult(0, 0, 0, 0, 0, 0, 0);
+        CycleMatchResult result = new CycleMatchResult(0, 0, 0, 0, 0, 0, 0, 0, 0);
         assertTrue(Double.isNaN(result.precision()));
         assertTrue(Double.isNaN(result.recall()));
         assertTrue(Double.isNaN(result.f1Score()));
@@ -136,7 +136,7 @@ class GroundTruthEvaluatorTest {
 
         assertEquals(1, result.ambiguousTargets());
         assertEquals(0, result.totalInjectedTargets());
-        assertEquals(0, result.falsePositives()); // Exactly matches ambiguous txIds -> ignored, NOT FP
+        assertEquals(0, result.ordinaryFalsePositives()); // Exactly matches ambiguous txIds -> ignored, NOT FP
         assertEquals(1, result.ignoredAmbiguousDetections());
         assertEquals(0, result.falseNegatives());
         assertTrue(Double.isNaN(result.precision()));
@@ -162,7 +162,7 @@ class GroundTruthEvaluatorTest {
 
         assertEquals(1, result.ambiguousTargets());
         assertEquals(0, result.totalInjectedTargets());
-        assertEquals(1, result.falsePositives()); // Partial overlap is insufficient -> FP
+        assertEquals(1, result.ordinaryFalsePositives()); // Partial overlap is insufficient -> FP
         assertEquals(0, result.ignoredAmbiguousDetections());
     }
 
@@ -184,7 +184,7 @@ class GroundTruthEvaluatorTest {
 
         assertEquals(1, result.ambiguousTargets());
         assertEquals(0, result.totalInjectedTargets());
-        assertEquals(1, result.falsePositives()); // Cycle has no overlap -> FP
+        assertEquals(1, result.ordinaryFalsePositives()); // Cycle has no overlap -> FP
         assertEquals(0, result.ignoredAmbiguousDetections());
     }
 }

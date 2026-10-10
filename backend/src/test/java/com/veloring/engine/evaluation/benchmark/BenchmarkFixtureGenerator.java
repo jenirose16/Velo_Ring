@@ -17,6 +17,7 @@ public class BenchmarkFixtureGenerator {
         public long maxLatenessMs = 0;
         public boolean finalWindowOnly = false;
         public long windowSizeSec = 60;
+        public long allowedLatenessSec = 60;
     }
 
     public static BenchmarkWorkload generate(Config config) {
@@ -99,9 +100,9 @@ public class BenchmarkFixtureGenerator {
                 events.add(buildEvent(tx2, b, c, startTime.plusMillis((long)(txIndex+1) * config.eventSpacingMs)));
                 events.add(buildEvent(tx3, c, a, startTime.plusMillis((long)(txIndex+2) * config.eventSpacingMs)));
 
-                truth.add(new GroundTruthRecord(expId, scenarioId, "CYCLE_3", tx1, "HOP_1", true));
-                truth.add(new GroundTruthRecord(expId, scenarioId, "CYCLE_3", tx2, "HOP_2", true));
-                truth.add(new GroundTruthRecord(expId, scenarioId, "CYCLE_3", tx3, "HOP_3", true));
+                truth.add(new GroundTruthRecord(expId, scenarioId, "CYCLE_3", tx1, "HOP_1", true, true));
+                truth.add(new GroundTruthRecord(expId, scenarioId, "CYCLE_3", tx2, "HOP_2", true, true));
+                truth.add(new GroundTruthRecord(expId, scenarioId, "CYCLE_3", tx3, "HOP_3", true, true));
 
                 txIndex += 3;
             } else {
@@ -124,7 +125,39 @@ public class BenchmarkFixtureGenerator {
             }
         }
 
-        return new BenchmarkWorkload(events, truth);
+        // Simulate temporal engine watermark to determine static eligibility
+        long watermarkMs = -1;
+        Set<String> ineligibleEventIds = new HashSet<>();
+
+        // Pass 1: Arrival lateness
+        for (TransactionEvent ev : events) {
+            long evTime = ev.getEventTime().toEpochMilli();
+            if (watermarkMs < 0 || evTime > watermarkMs) {
+                watermarkMs = evTime;
+            }
+            long allowedLateMs = config.allowedLatenessSec * 1000L;
+            if (watermarkMs - evTime >= allowedLateMs) {
+                ineligibleEventIds.add(ev.getTransactionId());
+            }
+        }
+
+        // Pass 2: Window eviction (at the end of the stream)
+        long windowMs = config.windowSizeSec * 1000L;
+        for (TransactionEvent ev : events) {
+            long evTime = ev.getEventTime().toEpochMilli();
+            if (watermarkMs - evTime >= windowMs) {
+                ineligibleEventIds.add(ev.getTransactionId());
+            }
+        }
+
+        // Update GroundTruthRecords with eligibility
+        List<GroundTruthRecord> updatedTruth = new ArrayList<>(truth.size());
+        for (GroundTruthRecord r : truth) {
+            boolean eligible = !ineligibleEventIds.contains(r.transactionId());
+            updatedTruth.add(new GroundTruthRecord(r.experimentId(), r.scenarioId(), r.scenarioType(), r.transactionId(), r.role(), r.injectedPattern(), eligible));
+        }
+
+        return new BenchmarkWorkload(events, updatedTruth);
     }
 
     private static TransactionEvent buildEvent(String id, String sender, String receiver, Instant time) {

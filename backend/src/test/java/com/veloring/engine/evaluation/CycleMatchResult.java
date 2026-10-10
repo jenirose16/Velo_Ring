@@ -5,19 +5,22 @@ package com.veloring.engine.evaluation;
  */
 public record CycleMatchResult(
     int truePositives,
-    int falsePositives, // Unmatched detected cycles
+    int ordinaryFalsePositives, // Unmatched detected cycles
+    int ineligibleTargetDetections, // Detections of cycles that should have been evicted
     int falseNegatives,
     int ambiguousTargets,
     int ignoredAmbiguousDetections,
     int totalDetectedCycles,
-    int totalInjectedTargets
+    int totalInjectedTargets,
+    int ineligibleTargets
 ) {
     /**
      * @return Precision, or Double.NaN if no cycles were detected.
      */
     public double precision() {
-        if (truePositives + falsePositives == 0) return Double.NaN;
-        return (double) truePositives / (truePositives + falsePositives);
+        int totalFalsePositives = ordinaryFalsePositives + ineligibleTargetDetections;
+        if (truePositives + totalFalsePositives == 0) return Double.NaN;
+        return (double) truePositives / (truePositives + totalFalsePositives);
     }
 
     /**

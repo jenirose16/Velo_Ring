@@ -20,7 +20,8 @@ public class GroundTruthEvaluator {
             String scenarioType,
             String transactionId,
             String role,
-            boolean injectedPattern
+            boolean injectedPattern,
+            boolean eligibleUnderPolicy
     ) {}
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -47,16 +48,24 @@ public class GroundTruthEvaluator {
                 .collect(Collectors.groupingBy(r -> r.experimentId() + "|" + r.scenarioId()));
 
         int ambiguousTargetsCount = 0;
+        int ineligibleTargetsCount = 0;
         List<Set<String>> validTargets = new ArrayList<>();
         List<Set<String>> ambiguousTargetTxIdSets = new ArrayList<>();
+        List<Set<String>> ineligibleTargetTxIdSets = new ArrayList<>();
 
         for (Map.Entry<String, List<GroundTruthRecord>> entry : grouped.entrySet()) {
             List<GroundTruthRecord> group = entry.getValue();
             Set<String> txIds = group.stream().map(GroundTruthRecord::transactionId).collect(Collectors.toSet());
             Set<String> roles = group.stream().map(GroundTruthRecord::role).collect(Collectors.toSet());
+            boolean allEligible = group.stream().allMatch(GroundTruthRecord::eligibleUnderPolicy);
 
             if (txIds.size() == 3 && roles.containsAll(Set.of("HOP_1", "HOP_2", "HOP_3")) && group.size() == 3) {
-                validTargets.add(txIds);
+                if (allEligible) {
+                    validTargets.add(txIds);
+                } else {
+                    ineligibleTargetsCount++;
+                    ineligibleTargetTxIdSets.add(txIds);
+                }
             } else {
                 ambiguousTargetsCount++;
                 ambiguousTargetTxIdSets.add(txIds);
@@ -65,7 +74,8 @@ public class GroundTruthEvaluator {
 
         int totalInjectedTargets = validTargets.size();
         int truePositives = 0;
-        int falsePositives = 0;
+        int ordinaryFalsePositives = 0;
+        int ineligibleTargetDetections = 0;
         int ignoredAmbiguousDetections = 0;
 
         for (Cycle cycle : detectedCycles) {
@@ -89,7 +99,7 @@ public class GroundTruthEvaluator {
             if (matched) {
                 truePositives++;
             } else {
-                // Determine if this exact set of 3 transaction IDs matches an ambiguous target.
+                // Determine if this exact set of 3 transaction IDs matches an ambiguous or ineligible target.
                 // Partial overlaps (sharing 1 or 2 IDs) do not provide sufficient evidence
                 // that the entire cycle is ambiguous, so they are not ignored.
                 boolean exactAmbiguousMatch = false;
@@ -100,10 +110,20 @@ public class GroundTruthEvaluator {
                     }
                 }
 
+                boolean exactIneligibleMatch = false;
+                for (Set<String> inelTarget : ineligibleTargetTxIdSets) {
+                    if (inelTarget.equals(cycleTxIds)) {
+                        exactIneligibleMatch = true;
+                        break;
+                    }
+                }
+
                 if (exactAmbiguousMatch) {
                     ignoredAmbiguousDetections++;
+                } else if (exactIneligibleMatch) {
+                    ineligibleTargetDetections++;
                 } else {
-                    falsePositives++;
+                    ordinaryFalsePositives++;
                 }
             }
         }
@@ -112,12 +132,14 @@ public class GroundTruthEvaluator {
 
         return new CycleMatchResult(
                 truePositives,
-                falsePositives,
+                ordinaryFalsePositives,
+                ineligibleTargetDetections,
                 falseNegatives,
                 ambiguousTargetsCount,
                 ignoredAmbiguousDetections,
                 detectedCycles.size(),
-                totalInjectedTargets
+                totalInjectedTargets,
+                ineligibleTargetsCount
         );
     }
 }
